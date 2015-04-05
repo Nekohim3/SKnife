@@ -3,7 +3,7 @@
         xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="" Height="481.79" Width="735.648" WindowTransitionsEnabled="False" Loaded="Window_Loaded" Closing="MetroWindow_Closing">
-    <Grid Background="#FF101010">
+    <Grid Background="#FF101010"  MouseWheel="MainGrid_MouseWheel">
         <Grid Name="MainGrid" Margin="10,10,0,10" HorizontalAlignment="Left" Width="520" ClipToBounds="True">
             <Grid Background="#FF202020" HorizontalAlignment="Left" Height="200" Margin="10,10,0,0" VerticalAlignment="Top" Width="500" Visibility="Hidden">
                 <Image Source="1.jpg" HorizontalAlignment="Left" Height="140" Margin="10,50,0,0" VerticalAlignment="Top" Width="140"/>
