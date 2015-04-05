@@ -37,11 +37,8 @@
     <Reference Include="MahApps.Metro">
       <HintPath>..\..\Knife\packages\MahApps.Metro.dll</HintPath>
     </Reference>
-    <Reference Include="Nading Network Library Client">
-      <HintPath>..\..\Knife\packages\Nading Network Library Client.dll</HintPath>
-    </Reference>
     <Reference Include="Nading Network Library Server">
-      <HintPath>..\..\Knife\packages\Nading Network Library Server.dll</HintPath>
+      <HintPath>..\..\..\..\..\..\..\lib\bin\Release\Nading Network Library Server.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Data" />
