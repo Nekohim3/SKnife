@@ -52,7 +52,7 @@ namespace SKnife
         {
             Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate
             {
-                Clients = Clients.OrderBy(x => x.State).ToList();
+                Clients = Clients.OrderByDescending(x => x.connected).ToList();
                 for(int i = 0;i<Clients.Count;i++)
                 {
                     Clients[i].Location = new Point(10, 10 + i * 210);
@@ -81,58 +81,6 @@ namespace SKnife
             }
             SortClients();
         }
-        void server_ClientPacketReceived(Guid ClientID, byte PacketType, string Packet)
-        {
-            if (PacketType == (byte)ConnMessType.Auth)
-            {
-                string accid = Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[0];
-                if (!Directory.Exists("Accounts/" + accid))
-                    Directory.CreateDirectory("Accounts/" + accid);
-                string ProfileImgLink = Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[1];
-                new WebClient().DownloadFile(ProfileImgLink, "Accounts/" + accid + "/icon");
-                double MoneyLimit = Convert.ToDouble(Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[2]);
-                if (Clients.Where(x => x.Accid == accid).Count() != 0)
-                {
-                    if (Clients.Where(x => x.Accid == accid).First().connected)
-                    {
-                        if (Clients.Where(x => x.Accid == accid).First().guid != ClientID)
-                        {
-                            server.DropClient(ClientID);
-                            return;
-                        }
-                    }
-                    Clients.Where(x => x.Accid == accid).First().guid = ClientID;
-                    Clients.Where(x => x.guid == ClientID).First().MoneyLimit = MoneyLimit;
-                    Clients.Where(x => x.guid == ClientID).First().Action = ClientAction.Off;
-                    Clients.Where(x => x.guid == ClientID).First().icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon");
-                    Clients.Where(x => x.guid == ClientID).First().connected = true;
-
-                    List<string> strs = new List<string>();
-                    FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Open, FileAccess.Read);
-                    StreamReader sr = new StreamReader(fs);
-                    while (!sr.EndOfStream)
-                        strs.Add(sr.ReadLine());
-                    sr.Close();
-                    fs.Close();
-                    Clients.Where(x => x.guid == ClientID).First().State = (ClientState)Enum.Parse(typeof(ClientState), (strs.Where(x => x.Split('=')[0] == "status").First().Split('=')[1]));
-                }
-                else
-                {
-                    FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Create, FileAccess.Write);
-                    StreamWriter sw = new StreamWriter(fs);
-                    sw.WriteLine("status=NewUser");
-                    sw.WriteLine("subcookies=false");
-                    sw.Close();
-                    fs.Close();
-                    Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate
-                    {
-                        Clients.Add(new Client(MainGrid, server) { guid = ClientID, Accid = accid, Action = ClientAction.Off, icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon"), MoneyLimit = MoneyLimit, State = ClientState.NewUser, connected = true });
-                    }));
-                }
-                //server.SendPacketToClient(ClientID, (byte)ConnMessType.Auth, Clients.Where(x => x.guid == ClientID).First().State.ToString());
-                SortClients();
-            }
-        }
         ImageSource LoadBitmap(string inputPath)
         {
             FileStream fileStream = null;
@@ -158,25 +106,90 @@ namespace SKnife
             }
             return img;
         }
+
+        void server_ClientPacketReceived(Guid ClientID, byte PacketType, string Packet)
+        {
+            try
+            {
+                if (PacketType == (byte)ConnMessType.CAct)
+                {
+                    Clients.Where(x => x.guid == ClientID).First().Action = (ClientAction)Enum.Parse(typeof(ClientAction), Packet);
+                }
+                if (PacketType == (byte)ConnMessType.Auth)
+                {
+                    string accid = Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[0];
+                    if (!Directory.Exists("Accounts/" + accid))
+                        Directory.CreateDirectory("Accounts/" + accid);
+                    string ProfileImgLink = Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[1];
+                    new WebClient().DownloadFile(ProfileImgLink, "Accounts/" + accid + "/icon");
+                    double MoneyLimit = Convert.ToDouble(Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[2]);
+                    if (Clients.Where(x => x.Accid == accid).Count() != 0)
+                    {
+                        if (Clients.Where(x => x.Accid == accid).First().connected)
+                        {
+                            if (Clients.Where(x => x.Accid == accid).First().guid != ClientID)
+                            {
+                                server.DropClient(ClientID);
+                                return;
+                            }
+                        }
+                        Clients.Where(x => x.Accid == accid).First().guid = ClientID;
+                        Clients.Where(x => x.guid == ClientID).First().MoneyLimit = MoneyLimit;
+                        Clients.Where(x => x.guid == ClientID).First().Action = ClientAction.Off;
+                        Clients.Where(x => x.guid == ClientID).First().icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon");
+                        Clients.Where(x => x.guid == ClientID).First().connected = true;
+
+                        List<string> strs = new List<string>();
+                        FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Open, FileAccess.Read);
+                        StreamReader sr = new StreamReader(fs);
+                        while (!sr.EndOfStream)
+                            strs.Add(sr.ReadLine());
+                        sr.Close();
+                        fs.Close();
+                        Clients.Where(x => x.guid == ClientID).First().State = (ClientState)Enum.Parse(typeof(ClientState), (strs.Where(x => x.Split('=')[0] == "status").First().Split('=')[1]));
+                    }
+                    else
+                    {
+                        FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Create, FileAccess.Write);
+                        StreamWriter sw = new StreamWriter(fs);
+                        sw.WriteLine("status=NewUser");
+                        sw.WriteLine("subcookies=false");
+                        sw.Close();
+                        fs.Close();
+                        Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate
+                        {
+                            Clients.Add(new Client(MainGrid, server) { guid = ClientID, Accid = accid, Action = ClientAction.Off, icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon"), MoneyLimit = MoneyLimit, State = ClientState.NewUser, connected = true });
+                        }));
+                    }
+                    //server.SendPacketToClient(ClientID, (byte)ConnMessType.Auth, Clients.Where(x => x.guid == ClientID).First().State.ToString());
+                    SortClients();
+                }
+            }
+            catch(Exception ee)
+            {
+                MessageBox.Show("");
+            }
+        }
         void server_ServerStopped()
         {
 
         }
-
         void server_ServerStarted()
         {
 
         }
-
         void server_ClientDisconnected(Guid ClientID)
         {
             try
             {
-                Clients.Where(x => x.guid == ClientID).First().connected = false;
+                if(Clients.Where(x => x.guid == ClientID).Count() != 0)
+                    Clients.Where(x => x.guid == ClientID).First().connected = false;
             }
-            catch { }
+            catch (Exception e)
+            {
+                MessageBox.Show("server_ClientDisconnected error:" + e.Message + Environment.NewLine + e.ToString());
+            }
         }
-
         void server_ClientConnected(Guid ClientID)
         {
             //MainGrid.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
@@ -192,11 +205,7 @@ namespace SKnife
             //}));
 
         }
-        public enum ConnMessType
-        {
-            Auth,
-            Sub
-        }
+
         public class Client
         {
             Nading.Network.Server.clsServer _server { get; set; }
@@ -221,7 +230,7 @@ namespace SKnife
             Image Img_ProfileImg { get; set; }
             TextBlock Tb_MoneyLimit { get; set; }
             TextBlock Tb_State { get; set; }
-            Image Img_State { get; set; }
+            Image Img_CAction { get; set; }
             Label L_CAction { get; set; }
             Grid opt { get; set; }
             Button B_Auth { get; set; }
@@ -240,6 +249,7 @@ namespace SKnife
                     {
                         if (!_connected)
                         {
+                            Action = ClientAction.Off;
                             if (_State == ClientState.Auth)
                             {
                                 Tb_State.Text = "Offline";
@@ -249,7 +259,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 0.5;
                                 Tb_MoneyLimit.Opacity = 0.5;
                                 Tb_State.Opacity = 0.5;
-                                Img_State.Opacity = 0.5;
+                                Img_CAction.Opacity = 0.5;
                                 L_CAction.Opacity = 0.5;
                             }
                             if (_State == ClientState.Banned)
@@ -261,7 +271,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 0.5;
                                 Tb_MoneyLimit.Opacity = 0.5;
                                 Tb_State.Opacity = 0.5;
-                                Img_State.Opacity = 0.5;
+                                Img_CAction.Opacity = 0.5;
                                 L_CAction.Opacity = 0.5;
                             }
                             if (_State == ClientState.NewUser)
@@ -273,7 +283,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 0.5;
                                 Tb_MoneyLimit.Opacity = 0.5;
                                 Tb_State.Opacity = 0.5;
-                                Img_State.Opacity = 0.5;
+                                Img_CAction.Opacity = 0.5;
                                 L_CAction.Opacity = 0.5;
                             }
                         }
@@ -288,7 +298,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 1;
                                 Tb_MoneyLimit.Opacity = 1;
                                 Tb_State.Opacity = 1;
-                                Img_State.Opacity = 1;
+                                Img_CAction.Opacity = 1;
                                 L_CAction.Opacity = 1;
                             }
                             if (_State == ClientState.Banned)
@@ -300,7 +310,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 0.5;
                                 Tb_MoneyLimit.Opacity = 0.5;
                                 Tb_State.Opacity = 0.5;
-                                Img_State.Opacity = 0.5;
+                                Img_CAction.Opacity = 0.5;
                                 L_CAction.Opacity = 0.5;
                             }
                             if (_State == ClientState.NewUser)
@@ -312,7 +322,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 1;
                                 Tb_MoneyLimit.Opacity = 1;
                                 Tb_State.Opacity = 1;
-                                Img_State.Opacity = 1;
+                                Img_CAction.Opacity = 1;
                                 L_CAction.Opacity = 1;
                             }
                         }
@@ -446,7 +456,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 0.5;
                                 Tb_MoneyLimit.Opacity = 0.5;
                                 Tb_State.Opacity = 0.5;
-                                Img_State.Opacity = 0.5;
+                                Img_CAction.Opacity = 0.5;
                                 L_CAction.Opacity = 0.5;
                             }
                             if (_State == ClientState.Banned)
@@ -458,7 +468,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 0.5;
                                 Tb_MoneyLimit.Opacity = 0.5;
                                 Tb_State.Opacity = 0.5;
-                                Img_State.Opacity = 0.5;
+                                Img_CAction.Opacity = 0.5;
                                 L_CAction.Opacity = 0.5;
                             }
                             if (_State == ClientState.NewUser)
@@ -470,7 +480,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 0.5;
                                 Tb_MoneyLimit.Opacity = 0.5;
                                 Tb_State.Opacity = 0.5;
-                                Img_State.Opacity = 0.5;
+                                Img_CAction.Opacity = 0.5;
                                 L_CAction.Opacity = 0.5;
                             }
                         }
@@ -485,7 +495,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 1;
                                 Tb_MoneyLimit.Opacity = 1;
                                 Tb_State.Opacity = 1;
-                                Img_State.Opacity = 1;
+                                Img_CAction.Opacity = 1;
                                 L_CAction.Opacity = 1;
                                 _server.SendPacketToClient(guid, (byte)ConnMessType.Auth, "Auth");
                                     
@@ -499,7 +509,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 0.5;
                                 Tb_MoneyLimit.Opacity = 0.5;
                                 Tb_State.Opacity = 0.5;
-                                Img_State.Opacity = 0.5;
+                                Img_CAction.Opacity = 0.5;
                                 L_CAction.Opacity = 0.5;
                                 _server.SendPacketToClient(guid, (byte)ConnMessType.Auth, "Banned");
                             }
@@ -512,7 +522,7 @@ namespace SKnife
                                 Img_ProfileImg.Opacity = 1;
                                 Tb_MoneyLimit.Opacity = 1;
                                 Tb_State.Opacity = 1;
-                                Img_State.Opacity = 1;
+                                Img_CAction.Opacity = 1;
                                 L_CAction.Opacity = 1;
                                 _server.SendPacketToClient(guid, (byte)ConnMessType.Auth, "NewUser");
                             }
@@ -530,19 +540,112 @@ namespace SKnife
                     _Action = value;
                     if (_Action == ClientAction.Buying)
                     {
-
+                        Img_CAction.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            var image = new BitmapImage();
+                            image.BeginInit();
+                            image.UriSource = new Uri(AppDomain.CurrentDomain.BaseDirectory + "loading.gif");
+                            image.EndInit();
+                            WpfAnimatedGif.ImageBehavior.SetAnimatedSource(Img_CAction, image);
+                        }));
+                        L_CAction.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            L_CAction.Content = "Buying";
+                        }));
+                        Interface.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            ColorAnimation ca = new ColorAnimation();
+                            ca.From = ((SolidColorBrush)Interface.Background).Color;
+                            ca.To = Color.FromArgb(255, 127, 0, 0);
+                            ca.Duration = TimeSpan.FromMilliseconds(500);
+                            ca.EasingFunction = new PowerEase()
+                            {
+                                EasingMode = EasingMode.EaseOut
+                            };
+                            Interface.Background.BeginAnimation(SolidColorBrush.ColorProperty, ca);
+                        }));
                     } 
-                    if (_Action == ClientAction.GettingPrice)
+                    if (_Action == ClientAction.GetKnife)
                     {
-
+                        Img_CAction.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            var image = new BitmapImage();
+                            image.BeginInit();
+                            image.UriSource = new Uri(AppDomain.CurrentDomain.BaseDirectory + "loading.gif");
+                            image.EndInit();
+                            WpfAnimatedGif.ImageBehavior.SetAnimatedSource(Img_CAction, image);
+                        }));
+                        L_CAction.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            L_CAction.Content = "GettingPrice";
+                        }));
+                        Interface.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            ColorAnimation ca = new ColorAnimation();
+                            ca.From = ((SolidColorBrush)Interface.Background).Color;
+                            ca.To = Color.FromArgb(255, 127, 127, 0);
+                            ca.Duration = TimeSpan.FromMilliseconds(500);
+                            ca.EasingFunction = new PowerEase()
+                            {
+                                EasingMode = EasingMode.EaseOut
+                            };
+                            Interface.Background.BeginAnimation(SolidColorBrush.ColorProperty, ca);
+                        }));
                     } 
                     if (_Action == ClientAction.Off)
                     {
-
+                        Img_CAction.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            var image = new BitmapImage();
+                            image.BeginInit();
+                            image.UriSource = new Uri(AppDomain.CurrentDomain.BaseDirectory + "error.png");
+                            image.EndInit();
+                            WpfAnimatedGif.ImageBehavior.SetAnimatedSource(Img_CAction, image);
+                        }));
+                        L_CAction.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            L_CAction.Content = "Off";
+                        }));
+                        Interface.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            ColorAnimation ca = new ColorAnimation();
+                            ca.From = ((SolidColorBrush)Interface.Background).Color;
+                            ca.To = Color.FromArgb(255, 16, 16, 16);
+                            ca.Duration = TimeSpan.FromMilliseconds(500);
+                            ca.EasingFunction = new PowerEase()
+                            {
+                                EasingMode = EasingMode.EaseOut
+                            };
+                            Interface.Background.BeginAnimation(SolidColorBrush.ColorProperty, ca);
+                        }));
                     } 
                     if (_Action == ClientAction.Search)
                     {
+                        Img_CAction.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            var image = new BitmapImage();
+                            image.BeginInit();
+                            image.UriSource = new Uri(AppDomain.CurrentDomain.BaseDirectory + "sloading.gif");
+                            image.EndInit();
+                            WpfAnimatedGif.ImageBehavior.SetAnimatedSource(Img_CAction, image);
+                        }));
 
+                        L_CAction.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            L_CAction.Content = "Search";
+                        }));
+                        Interface.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                        {
+                            ColorAnimation ca = new ColorAnimation();
+                            ca.From = ((SolidColorBrush)Interface.Background).Color;
+                            ca.To = Color.FromArgb(255, 16, 16, 16);
+                            ca.Duration = TimeSpan.FromMilliseconds(500);
+                            ca.EasingFunction = new PowerEase()
+                            {
+                                EasingMode = EasingMode.EaseOut
+                            };
+                            Interface.Background.BeginAnimation(SolidColorBrush.ColorProperty, ca);
+                        }));
                     }
                 }
             }
@@ -577,6 +680,7 @@ namespace SKnife
                 Interface.Children.Add(L_Accid);
 
                 Img_ProfileImg = new Image();
+                RenderOptions.SetBitmapScalingMode(Img_ProfileImg, BitmapScalingMode.HighQuality);
                 Img_ProfileImg.HorizontalAlignment = HorizontalAlignment.Left;
                 Img_ProfileImg.VerticalAlignment = VerticalAlignment.Top;
                 Img_ProfileImg.Margin = new Thickness(10, 50, 0, 0);
@@ -618,13 +722,14 @@ namespace SKnife
                 L.Margin = new Thickness(155, 153, 0, 0);
                 Interface.Children.Add(L);
 
-                Img_State = new Image();
-                Img_State.HorizontalAlignment = HorizontalAlignment.Left;
-                Img_State.VerticalAlignment = VerticalAlignment.Top;
-                Img_State.Margin = new Thickness(350, 10, 0, 0);
-                Img_State.Width = 140;
-                Img_State.Height = 140;
-                Interface.Children.Add(Img_State);
+                Img_CAction = new Image();
+                RenderOptions.SetBitmapScalingMode(Img_CAction, BitmapScalingMode.HighQuality);
+                Img_CAction.HorizontalAlignment = HorizontalAlignment.Left;
+                Img_CAction.VerticalAlignment = VerticalAlignment.Top;
+                Img_CAction.Margin = new Thickness(350, 10, 0, 0);
+                Img_CAction.Width = 140;
+                Img_CAction.Height = 140;
+                Interface.Children.Add(Img_CAction);
 
                 L_CAction = new Label();
                 L_CAction.HorizontalAlignment = HorizontalAlignment.Left;
@@ -723,7 +828,6 @@ namespace SKnife
         {
             server.StopServer();
         }
-
         private void MainGrid_MouseWheel(object sender, MouseWheelEventArgs e)
         {
             foreach (Client c in Clients)
@@ -732,12 +836,19 @@ namespace SKnife
             }
         }
     }
+    public enum ConnMessType
+    {
+        Auth,
+        Sub,
+        Log,
+        CAct
+    }
     public enum ClientAction
     {
         Off,
         Search,
-        GettingPrice,
-        Buying
+        GetKnife,
+        Buying,
     }
     public enum ClientState
     {
