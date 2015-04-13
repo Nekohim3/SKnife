@@ -126,7 +126,7 @@ namespace SKnife
                         sender = s.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[3]
                     });
                 }
-
+                Clients.Where(x => x.NC == NC).First().SaveStats();
             }
         }
         void NServer_ClientDisconnected(NetConnection NC, string mess)
@@ -163,15 +163,8 @@ namespace SKnife
                 Clients.Where(x => x.NC == NC).First().icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon");
                 Clients.Where(x => x.NC == NC).First().connected = true;
 
-                if (File.Exists("Accounts/" + accid + "/Knives.key"))
-                {
-                    FileStream fs1 = new FileStream("Accounts/" + accid + "/Knives.key", FileMode.Open, FileAccess.Read);
-                    StreamReader sr1 = new StreamReader(fs1);
-                    string statess = Crypt.Crypt.Decrypt(sr1.ReadToEnd());
-                    sr1.Close();
-                    fs1.Close();
-                }
-
+                Clients.Where(x => x.NC == NC).First().LoadStats();
+                
                 List<string> strs = new List<string>();
                 FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Open, FileAccess.Read);
                 StreamReader sr = new StreamReader(fs);
@@ -757,7 +750,6 @@ namespace SKnife
                 Interface.Margin = new Thickness(10, 10, 0, 0);
                 Interface.ClipToBounds = true;
                 Interface.MouseLeave += Interface_MouseLeave;
-                Interface.PreviewMouseLeftButtonUp += Interface_PreviewMouseLeftButtonUp;
                 parent.Children.Add(Interface);
 
                 Location = new Point(10, 10);
@@ -778,6 +770,7 @@ namespace SKnife
                 Img_ProfileImg.Width = 140;
                 Img_ProfileImg.Height = 140;
                 Img_ProfileImg.PreviewMouseRightButtonUp += Img_ProfileImg_PreviewMouseRightButtonUp;
+                Img_ProfileImg.PreviewMouseLeftButtonUp += Interface_PreviewMouseLeftButtonUp;
                 Interface.Children.Add(Img_ProfileImg);
 
                 Tb_MoneyLimit = new TextBlock();
@@ -886,6 +879,21 @@ namespace SKnife
 
             void Interface_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
             {
+                if (Action == ClientAction.Search || Action == ClientAction.Off)
+                {
+                    Interface.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                    {
+                        ColorAnimation ca = new ColorAnimation();
+                        ca.From = ((SolidColorBrush)Interface.Background).Color;
+                        ca.To = Color.FromArgb(255, 16, 16, 16);
+                        ca.Duration = TimeSpan.FromMilliseconds(500);
+                        ca.EasingFunction = new PowerEase()
+                        {
+                            EasingMode = EasingMode.EaseOut
+                        };
+                        Interface.Background.BeginAnimation(SolidColorBrush.ColorProperty, ca);
+                    }));
+                }
                 Stats s = new Stats(knives);
                 s.Show();
                 NK = false;
@@ -922,7 +930,7 @@ namespace SKnife
 
             }
 
-            void LoadStats()
+            public void LoadStats()
             {
                 try
                 {
@@ -952,9 +960,9 @@ namespace SKnife
                     
                 }
             }
-            void SaveStats()
+            public void SaveStats()
             {
-                FileStream fs = new FileStream("Knives.key", FileMode.Create, FileAccess.Write);
+                FileStream fs = new FileStream("Accounts/" + Accid + "/Knives.key", FileMode.Create, FileAccess.Write);
                 StreamWriter sw = new StreamWriter(fs);
                 string str = "";
                 foreach (SSKnife k in knives)
