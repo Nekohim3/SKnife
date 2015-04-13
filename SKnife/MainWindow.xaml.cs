@@ -1,4 +1,5 @@
-﻿using MahApps.Metro.Controls;
+﻿using Lidgren.Network;
+using MahApps.Metro.Controls;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -6,6 +7,7 @@ using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -31,22 +33,18 @@ namespace SKnife
         {
             InitializeComponent();
         }
-        public Nading.Network.Server.clsServer server = new Nading.Network.Server.clsServer();
         [DllImport("kernel32")]
         static extern bool AllocConsole();
         public List<Client> Clients = new List<Client>();
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             //AllocConsole();
-            server.ServerBindIPAdress = "192.168.1.252";
-            server.ServerBindPort = 18346;
-            server.ClientConnected += server_ClientConnected;
-            server.ClientDisconnected += server_ClientDisconnected;
-            server.ServerStarted += server_ServerStarted;
-            server.ServerStopped += server_ServerStopped;
-            server.ClientPacketReceived += server_ClientPacketReceived;
-            server.StartServer(false);
             LoadClients();
+            NServer.ClientConnected += NServer_ClientConnected;
+            NServer.ClientDisconnected += NServer_ClientDisconnected;
+            NServer.ClientPacketReceived += NServer_ClientPacketReceived;
+            NServer.ClientConnectionApproval += NServer_ClientConnectionApproval;
+            NServer.StartServer();
         }
         void SortClients()
         {
@@ -76,7 +74,7 @@ namespace SKnife
                         strs.Add(sr.ReadLine());
                     sr.Close();
                     fs.Close();
-                    Clients.Add(new Client(MainGrid, server) { Accid = dir.Name, icon = LoadBitmap(dir.FullName + "/icon"), Action = ClientAction.Off, MoneyLimit = 0, State = (ClientState)Enum.Parse(typeof(ClientState),strs.Where(x => x.Split('=')[0] == "status").First().Split('=')[1]), connected = false  });
+                    Clients.Add(new Client(MainGrid) { Accid = dir.Name, icon = LoadBitmap(dir.FullName + "/icon"), Action = ClientAction.Off, MoneyLimit = 0, State = (ClientState)Enum.Parse(typeof(ClientState),strs.Where(x => x.Split('=')[0] == "status").First().Split('=')[1]), connected = false  });
                 }));
             }
             SortClients();
@@ -106,110 +104,200 @@ namespace SKnife
             }
             return img;
         }
-
-        void server_ClientPacketReceived(Guid ClientID, byte PacketType, string Packet)
+        void NServer_ClientPacketReceived(NetConnection NC, byte MType, string Mess)
         {
-            try
+            if (MType == (byte)ConnMessType.CAct)
             {
-                if (PacketType == (byte)ConnMessType.CAct)
+                if (Clients.Where(x => x.NC == NC).First().Action != (ClientAction)Enum.Parse(typeof(ClientAction), Mess))
+                    Clients.Where(x => x.NC == NC).First().Action = (ClientAction)Enum.Parse(typeof(ClientAction), Mess);
+            }
+            if(MType == (byte)ConnMessType.NK)
+            {
+                Clients.Where(x => x.NC == NC).First().NK = true;
+                Clients.Where(x => x.NC == NC).First().knives.Clear();
+                string str = Crypt.Crypt.Decrypt(Mess);
+                foreach (string s in str.Split(new string[] { "<::>" }, StringSplitOptions.RemoveEmptyEntries))
                 {
-                    Clients.Where(x => x.guid == ClientID).First().Action = (ClientAction)Enum.Parse(typeof(ClientAction), Packet);
+                    Clients.Where(x => x.NC == NC).First().knives.Add(new SSKnife()
+                    {
+                        date = Convert.ToDateTime(s.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[0]),
+                        price = s.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[1],
+                        succ = Convert.ToBoolean(s.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[2]),
+                        sender = s.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[3]
+                    });
                 }
-                if (PacketType == (byte)ConnMessType.Auth)
+
+            }
+        }
+        void NServer_ClientDisconnected(NetConnection NC, string mess)
+        {
+            if (Clients.Where(x => x.NC == NC).Count() != 0)
+                Clients.Where(x => x.NC == NC).First().connected = false;
+        }
+        void NServer_ClientConnected(NetConnection NC, string mess)
+        {
+
+        }
+        ClientState NServer_ClientConnectionApproval(NetConnection NC, string Mess)
+        {
+            ClientState CS = ClientState.Deny;
+            long ClientID = NC.RemoteUniqueIdentifier;
+            string accid = Mess.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[0];
+            if (!Directory.Exists("Accounts/" + accid))
+                Directory.CreateDirectory("Accounts/" + accid);
+            string ProfileImgLink = Mess.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[1];
+            new WebClient().DownloadFile(ProfileImgLink, "Accounts/" + accid + "/icon");
+            double MoneyLimit = Convert.ToDouble(Mess.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[2]);
+            if (Clients.Where(x => x.Accid == accid).Count() != 0)
+            {
+                if (Clients.Where(x => x.Accid == accid).First().connected)
                 {
-                    string accid = Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[0];
-                    if (!Directory.Exists("Accounts/" + accid))
-                        Directory.CreateDirectory("Accounts/" + accid);
-                    string ProfileImgLink = Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[1];
-                    new WebClient().DownloadFile(ProfileImgLink, "Accounts/" + accid + "/icon");
-                    double MoneyLimit = Convert.ToDouble(Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[2]);
-                    if (Clients.Where(x => x.Accid == accid).Count() != 0)
+                    if (Clients.Where(x => x.Accid == accid).First().NC != NC)
                     {
-                        if (Clients.Where(x => x.Accid == accid).First().connected)
-                        {
-                            if (Clients.Where(x => x.Accid == accid).First().guid != ClientID)
-                            {
-                                server.DropClient(ClientID);
-                                return;
-                            }
-                        }
-                        Clients.Where(x => x.Accid == accid).First().guid = ClientID;
-                        Clients.Where(x => x.guid == ClientID).First().MoneyLimit = MoneyLimit;
-                        Clients.Where(x => x.guid == ClientID).First().Action = ClientAction.Off;
-                        Clients.Where(x => x.guid == ClientID).First().icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon");
-                        Clients.Where(x => x.guid == ClientID).First().connected = true;
-
-                        List<string> strs = new List<string>();
-                        FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Open, FileAccess.Read);
-                        StreamReader sr = new StreamReader(fs);
-                        while (!sr.EndOfStream)
-                            strs.Add(sr.ReadLine());
-                        sr.Close();
-                        fs.Close();
-                        Clients.Where(x => x.guid == ClientID).First().State = (ClientState)Enum.Parse(typeof(ClientState), (strs.Where(x => x.Split('=')[0] == "status").First().Split('=')[1]));
+                        return ClientState.Deny;
                     }
-                    else
-                    {
-                        FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Create, FileAccess.Write);
-                        StreamWriter sw = new StreamWriter(fs);
-                        sw.WriteLine("status=NewUser");
-                        sw.WriteLine("subcookies=false");
-                        sw.Close();
-                        fs.Close();
-                        Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate
-                        {
-                            Clients.Add(new Client(MainGrid, server) { guid = ClientID, Accid = accid, Action = ClientAction.Off, icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon"), MoneyLimit = MoneyLimit, State = ClientState.NewUser, connected = true });
-                        }));
-                    }
-                    //server.SendPacketToClient(ClientID, (byte)ConnMessType.Auth, Clients.Where(x => x.guid == ClientID).First().State.ToString());
-                    SortClients();
                 }
+                Clients.Where(x => x.Accid == accid).First().NC = NC;
+                Clients.Where(x => x.NC == NC).First().MoneyLimit = MoneyLimit;
+                Clients.Where(x => x.NC == NC).First().Action = ClientAction.Off;
+                Clients.Where(x => x.NC == NC).First().icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon");
+                Clients.Where(x => x.NC == NC).First().connected = true;
+
+                if (File.Exists("Accounts/" + accid + "/Knives.key"))
+                {
+                    FileStream fs1 = new FileStream("Accounts/" + accid + "/Knives.key", FileMode.Open, FileAccess.Read);
+                    StreamReader sr1 = new StreamReader(fs1);
+                    string statess = Crypt.Crypt.Decrypt(sr1.ReadToEnd());
+                    sr1.Close();
+                    fs1.Close();
+                }
+
+                List<string> strs = new List<string>();
+                FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Open, FileAccess.Read);
+                StreamReader sr = new StreamReader(fs);
+                while (!sr.EndOfStream)
+                    strs.Add(sr.ReadLine());
+                sr.Close();
+                fs.Close();
+                Clients.Where(x => x.NC == NC).First().State = (ClientState)Enum.Parse(typeof(ClientState), (strs.Where(x => x.Split('=')[0] == "status").First().Split('=')[1]));
+                CS = Clients.Where(x => x.NC == NC).First().State;
             }
-            catch(Exception ee)
+            else
             {
-                MessageBox.Show("");
+                FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Create, FileAccess.Write);
+                StreamWriter sw = new StreamWriter(fs);
+                sw.WriteLine("status=NewUser");
+                sw.WriteLine("subcookies=false");
+                sw.Close();
+                fs.Close();
+                Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate
+                {
+                    Clients.Add(new Client(MainGrid) { NC = NC, Accid = accid, Action = ClientAction.Off, icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon"), MoneyLimit = MoneyLimit, State = ClientState.NewUser, connected = true });
+                }));
+                CS = ClientState.NewUser;
             }
+            //server.SendPacketToClient(ClientID, (byte)ConnMessType.Auth, Clients.Where(x => x.guid == ClientID).First().State.ToString());
+            SortClients();
+            return CS;
         }
-        void server_ServerStopped()
-        {
+        //void server_ClientPacketReceived(Guid ClientID, byte PacketType, string Packet)
+        //{
+        //    try
+        //    {
+        //        if(PacketType == (byte)ConnMessType.Alive)
+        //        {
+        //            server.SendPacketToClient(ClientID, (byte)ConnMessType.Alive, "");
+        //        }
+        //        if (PacketType == (byte)ConnMessType.CAct)
+        //        {
+        //            Clients.Where(x => x.guid == ClientID).First().Action = (ClientAction)Enum.Parse(typeof(ClientAction), Packet);
+        //        }
+        //        if (PacketType == (byte)ConnMessType.Auth)
+        //        {
+        //            string accid = Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[0];
+        //            if (!Directory.Exists("Accounts/" + accid))
+        //                Directory.CreateDirectory("Accounts/" + accid);
+        //            string ProfileImgLink = Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[1];
+        //            new WebClient().DownloadFile(ProfileImgLink, "Accounts/" + accid + "/icon");
+        //            double MoneyLimit = Convert.ToDouble(Packet.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[2]);
+        //            if (Clients.Where(x => x.Accid == accid).Count() != 0)
+        //            {
+        //                if (Clients.Where(x => x.Accid == accid).First().connected)
+        //                {
+        //                    if (Clients.Where(x => x.Accid == accid).First().guid != ClientID)
+        //                    {
+        //                        server.DropClient(ClientID);
+        //                        return;
+        //                    }
+        //                }
+        //                Clients.Where(x => x.Accid == accid).First().guid = ClientID;
+        //                Clients.Where(x => x.guid == ClientID).First().MoneyLimit = MoneyLimit;
+        //                Clients.Where(x => x.guid == ClientID).First().Action = ClientAction.Off;
+        //                Clients.Where(x => x.guid == ClientID).First().icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon");
+        //                Clients.Where(x => x.guid == ClientID).First().connected = true;
 
-        }
-        void server_ServerStarted()
-        {
+        //                List<string> strs = new List<string>();
+        //                FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Open, FileAccess.Read);
+        //                StreamReader sr = new StreamReader(fs);
+        //                while (!sr.EndOfStream)
+        //                    strs.Add(sr.ReadLine());
+        //                sr.Close();
+        //                fs.Close();
+        //                Clients.Where(x => x.guid == ClientID).First().State = (ClientState)Enum.Parse(typeof(ClientState), (strs.Where(x => x.Split('=')[0] == "status").First().Split('=')[1]));
+        //            }
+        //            else
+        //            {
+        //                FileStream fs = new FileStream("Accounts/" + accid + "/info", FileMode.Create, FileAccess.Write);
+        //                StreamWriter sw = new StreamWriter(fs);
+        //                sw.WriteLine("status=NewUser");
+        //                sw.WriteLine("subcookies=false");
+        //                sw.Close();
+        //                fs.Close();
+        //                Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate
+        //                {
+        //                    Clients.Add(new Client(MainGrid, server) { guid = ClientID, Accid = accid, Action = ClientAction.Off, icon = LoadBitmap(AppDomain.CurrentDomain.BaseDirectory + "Accounts/" + accid + "/icon"), MoneyLimit = MoneyLimit, State = ClientState.NewUser, connected = true });
+        //                }));
+        //            }
+        //            //server.SendPacketToClient(ClientID, (byte)ConnMessType.Auth, Clients.Where(x => x.guid == ClientID).First().State.ToString());
+        //            SortClients();
+        //        }
+        //    }
+        //    catch(Exception ee)
+        //    {
+        //        MessageBox.Show(ee.ToString());
+        //    }
+        //}
+        //void server_ClientDisconnected(Guid ClientID)
+        //{
+        //    try
+        //    {
+        //        if(Clients.Where(x => x.guid == ClientID).Count() != 0)
+        //            Clients.Where(x => x.guid == ClientID).First().connected = false;
+        //    }
+        //    catch (Exception e)
+        //    {
+        //        MessageBox.Show("server_ClientDisconnected error:" + e.Message + Environment.NewLine + e.ToString());
+        //    }
+        //}
+        //void server_ClientConnected(Guid ClientID)
+        //{
+        //    //MainGrid.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        //    //{
+        //    //    try
+        //    //    {
+        //    //        Clients.Add(new Client(MainGrid) { guid = ClientID });
+        //    //    }
+        //    //    catch (Exception e)
+        //    //    {
+        //    //        MessageBox.Show("");
+        //    //    }
+        //    //}));
 
-        }
-        void server_ClientDisconnected(Guid ClientID)
-        {
-            try
-            {
-                if(Clients.Where(x => x.guid == ClientID).Count() != 0)
-                    Clients.Where(x => x.guid == ClientID).First().connected = false;
-            }
-            catch (Exception e)
-            {
-                MessageBox.Show("server_ClientDisconnected error:" + e.Message + Environment.NewLine + e.ToString());
-            }
-        }
-        void server_ClientConnected(Guid ClientID)
-        {
-            //MainGrid.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
-            //{
-            //    try
-            //    {
-            //        Clients.Add(new Client(MainGrid) { guid = ClientID });
-            //    }
-            //    catch (Exception e)
-            //    {
-            //        MessageBox.Show("");
-            //    }
-            //}));
-
-        }
-
+        //}
         public class Client
         {
-            Nading.Network.Server.clsServer _server { get; set; }
-
+            public bool NK = false;
+            public List<SSKnife> knives = new List<SSKnife>();
             public Grid Interface;
             Point _Location;
             public Point Location
@@ -373,7 +461,7 @@ namespace SKnife
             }
 
             bool _SubCookies { get; set; }
-            public Guid guid { get; set; }
+            public NetConnection NC { get; set; }
 
             string _Accid;
             public string Accid
@@ -497,7 +585,7 @@ namespace SKnife
                                 Tb_State.Opacity = 1;
                                 Img_CAction.Opacity = 1;
                                 L_CAction.Opacity = 1;
-                                _server.SendPacketToClient(guid, (byte)ConnMessType.Auth, "Auth");
+                                NServer.Send(NC, (byte)ConnMessType.Auth, "Auth");
                                     
                             }
                             if (_State == ClientState.Banned)
@@ -511,7 +599,7 @@ namespace SKnife
                                 Tb_State.Opacity = 0.5;
                                 Img_CAction.Opacity = 0.5;
                                 L_CAction.Opacity = 0.5;
-                                _server.SendPacketToClient(guid, (byte)ConnMessType.Auth, "Banned");
+                                NServer.Send(NC, (byte)ConnMessType.Auth, "Banned");
                             }
                             if (_State == ClientState.NewUser)
                             {
@@ -524,7 +612,7 @@ namespace SKnife
                                 Tb_State.Opacity = 1;
                                 Img_CAction.Opacity = 1;
                                 L_CAction.Opacity = 1;
-                                _server.SendPacketToClient(guid, (byte)ConnMessType.Auth, "NewUser");
+                                NServer.Send(NC, (byte)ConnMessType.Auth, "NewUser");
                             }
                         }
                     }));
@@ -638,7 +726,10 @@ namespace SKnife
                         {
                             ColorAnimation ca = new ColorAnimation();
                             ca.From = ((SolidColorBrush)Interface.Background).Color;
-                            ca.To = Color.FromArgb(255, 16, 16, 16);
+                            if(!NK)
+                                ca.To = Color.FromArgb(255, 16, 16, 16);
+                            else
+                                ca.To = Color.FromArgb(127, 16, 255, 16);
                             ca.Duration = TimeSpan.FromMilliseconds(500);
                             ca.EasingFunction = new PowerEase()
                             {
@@ -650,13 +741,12 @@ namespace SKnife
                 }
             }
 
-            public void SubCookies(Nading.Network.Server.clsServer server, bool sub)
+            //public void SubCookies(Nading.Network.Server.clsServer server, bool sub)
+            //{
+            //    _SubCookies = sub;
+            //}
+            public Client(Grid parent)
             {
-                _SubCookies = sub;
-            }
-            public Client(Grid parent, Nading.Network.Server.clsServer server)
-            {
-                _server = server;
 
                 Interface = new Grid();
                 Interface.HorizontalAlignment = HorizontalAlignment.Left;
@@ -667,6 +757,7 @@ namespace SKnife
                 Interface.Margin = new Thickness(10, 10, 0, 0);
                 Interface.ClipToBounds = true;
                 Interface.MouseLeave += Interface_MouseLeave;
+                Interface.PreviewMouseLeftButtonUp += Interface_PreviewMouseLeftButtonUp;
                 parent.Children.Add(Interface);
 
                 Location = new Point(10, 10);
@@ -793,6 +884,13 @@ namespace SKnife
                 
             }
 
+            void Interface_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+            {
+                Stats s = new Stats(knives);
+                s.Show();
+                NK = false;
+            }
+
             void Interface_MouseLeave(object sender, MouseEventArgs e)
             {
                 if (showOpt)
@@ -823,10 +921,54 @@ namespace SKnife
             {
 
             }
+
+            void LoadStats()
+            {
+                try
+                {
+                    knives.Clear();
+                    FileStream fs = new FileStream("Accounts/" + Accid + "/Knives.key", FileMode.Open, FileAccess.Read);
+                    StreamReader sr = new StreamReader(fs);
+                    string str = Crypt.Crypt.Decrypt(sr.ReadToEnd());
+                    sr.Close();
+                    fs.Close();
+                    if (str != "nothing")
+                    {
+                        foreach (string s in str.Split(new string[] { "<::>" }, StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            knives.Add(new SSKnife()
+                            {
+                                date = Convert.ToDateTime(s.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[0]),
+                                price = s.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[1],
+                                succ = Convert.ToBoolean(s.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[2]),
+                                sender = s.Split(new string[] { "<:>" }, StringSplitOptions.RemoveEmptyEntries)[3]
+                            });
+                        }
+                    }
+                    
+                }
+                catch
+                {
+                    
+                }
+            }
+            void SaveStats()
+            {
+                FileStream fs = new FileStream("Knives.key", FileMode.Create, FileAccess.Write);
+                StreamWriter sw = new StreamWriter(fs);
+                string str = "";
+                foreach (SSKnife k in knives)
+                    str += k.date.ToString() + "<:>" + k.price + "<:>" + k.succ.ToString() + "<:>" + k.sender + "<::>";
+                string estr = Crypt.Crypt.Encrypt(str);
+                sw.Write(estr);
+                sw.Close();
+                fs.Close();
+            }
         }
         private void MetroWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            server.StopServer();
+            NServer.Shutdown();
+            //server.StopServer();
         }
         private void MainGrid_MouseWheel(object sender, MouseWheelEventArgs e)
         {
@@ -841,7 +983,9 @@ namespace SKnife
         Auth,
         Sub,
         Log,
-        CAct
+        CAct,
+        Alive,
+        NK
     }
     public enum ClientAction
     {
@@ -855,6 +999,123 @@ namespace SKnife
         NewUser,
         Auth,
         Banned,
+        Deny
+    }
+    public static class NServer
+    {
+        public static event ClientConnectedEventHandler ClientConnected;
+        public delegate void ClientConnectedEventHandler(NetConnection NC, string mess);
+
+        public static event ClientDisconnectedEventHandler ClientDisconnected;
+        public delegate void ClientDisconnectedEventHandler(NetConnection NC, string mess);
+
+        public static event ClientPacketReceivedEventHandler ClientPacketReceived;
+        public delegate void ClientPacketReceivedEventHandler(NetConnection NC, byte MType, string Mess);
+
+        public static event ClientConnectionApprovalEventHandler ClientConnectionApproval;
+        public delegate ClientState ClientConnectionApprovalEventHandler(NetConnection NC, string Mess);
+
+        public static NetServer s_server;
+        static NServer()
+        {
+            NetPeerConfiguration config = new NetPeerConfiguration("Knife");
+            config.MaximumConnections = 100;
+            config.EnableMessageType(NetIncomingMessageType.ConnectionApproval);
+            config.Port = 18346;
+            config.ConnectionTimeout = 10;
+            s_server = new NetServer(config);
+            s_server.RegisterReceivedCallback(new SendOrPostCallback(callb));
+        }
+        public static void StartServer()
+        {
+            s_server.Start();
+        }
+        public static void Shutdown()
+        {
+            s_server.Shutdown("Requested by user");
+        }
+        public static void Send(NetConnection NC, byte MType, string Mess)
+        {
+            string ToSend = MType.ToString() + "<:SS:>" + Mess;
+            NetOutgoingMessage om = s_server.CreateMessage();
+            om.Write(ToSend);
+            s_server.SendMessage(om, NC, NetDeliveryMethod.ReliableOrdered, 0);
+        }
+        public static void Send(long NC, byte MType, string Mess)
+        {
+            string ToSend = MType.ToString() + "<:SS:>" + Mess;
+            NetOutgoingMessage om = s_server.CreateMessage();
+            om.Write(ToSend);
+            s_server.SendMessage(om, s_server.Connections.Where(x => x.RemoteUniqueIdentifier == NC).First(), NetDeliveryMethod.ReliableOrdered, 0);
+        }
+        public static void Send(List<NetConnection> NC, byte MType, string Mess)
+        {
+            string ToSend = MType.ToString() + "<:SS:>" + Mess;
+            NetOutgoingMessage om = s_server.CreateMessage();
+            om.Write(ToSend);
+            s_server.SendMessage(om, NC, NetDeliveryMethod.ReliableOrdered, 0);
+        }
+        static void callb(object obj)
+        {
+            NetIncomingMessage im;
+            while ((im = s_server.ReadMessage()) != null)
+            {
+                // handle incoming message
+                switch (im.MessageType)
+                {
+                    case NetIncomingMessageType.DebugMessage:
+                    case NetIncomingMessageType.ErrorMessage:
+                    case NetIncomingMessageType.WarningMessage:
+                    case NetIncomingMessageType.VerboseDebugMessage:
+                        string text = im.ReadString();
+                        //Output(text);
+                        break;
+
+                    case NetIncomingMessageType.StatusChanged:
+                        NetConnectionStatus status = (NetConnectionStatus)im.ReadByte();
+                        if (status == NetConnectionStatus.Connected)
+                        {
+                            ClientConnectedEventHandler CE = ClientConnected;
+                            if (CE != null)
+                                CE(im.SenderConnection, im.SenderConnection.RemoteHailMessage.ReadString());
+                        }
+                        if (status == NetConnectionStatus.Disconnected)
+                        {
+                            ClientDisconnectedEventHandler DE = ClientDisconnected;
+                            if (DE != null)
+                                DE(im.SenderConnection, im.ReadString());
+                        }
+                        if (status == NetConnectionStatus.RespondedAwaitingApproval)
+                        {
+                            ClientConnectionApprovalEventHandler CA = ClientConnectionApproval;
+                            if(CA != null)
+                                im.SenderConnection.Approve(s_server.CreateMessage(CA(im.SenderConnection, im.SenderConnection.RemoteHailMessage.ReadString()).ToString()));
+                        }
+                        break;
+                    case NetIncomingMessageType.Data:
+                        string msg = im.ReadString();
+                        byte MType = Convert.ToByte(msg.Split(new string[] { "<:SS:>" }, StringSplitOptions.None)[0]);
+                        string Mess = msg.Split(new string[] { "<:SS:>" }, StringSplitOptions.None)[1];
+                        ClientPacketReceivedEventHandler RE = ClientPacketReceived;
+                        if (RE != null)
+                        {
+                            RE(im.SenderConnection, MType, Mess);
+                        }
+                        break;
+                    default:
+                        //Output("Unhandled type: " + im.MessageType + " " + im.LengthBytes + " bytes " + im.DeliveryMethod + "|" + im.SequenceChannel);
+                        break;
+                }
+                s_server.Recycle(im);
+            }
+        }
+    }
+    public class SSKnife
+    {
+        public DateTime date { get; set; }
+        public string price { get; set; }
+        public bool succ { get; set; }
+        public string sender { get; set; }
     }
 }
 

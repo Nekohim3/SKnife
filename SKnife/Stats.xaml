@@ -1,0 +1,17 @@
+﻿<Controls:MetroWindow x:Class="SKnife.Stats"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:Controls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+        Title="Stats" Height="720" Width="1280"  WindowTransitionsEnabled="False">
+    <Grid Background="#ff101010">
+        <DataGrid Name="DG"  CanUserSortColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" MinRowHeight="15" MouseLeftButtonUp="DG_MouseLeftButtonUp">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Date" Width="125" Binding="{Binding date}"/>
+                <DataGridTextColumn Header="Price" Width="75" Binding="{Binding price}"/>
+                <DataGridTextColumn Header="success" Width="75" Binding="{Binding succ}"/>
+                <DataGridTextColumn Header="sender" Width="*" Binding="{Binding sender}"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+    </Grid>
+</Controls:MetroWindow> 
